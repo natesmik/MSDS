@@ -1,0 +1,229 @@
+---
+title: "NYC Shooting Analysis"
+author: "Nate Smik"
+output: pdf_document
+date: "2024-06-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+The data analyzed in this report comes from the City of New York and represents historical shooting incidents across New York City from 2006 through the last calendar year. The purpose of the project is to clean and analyze the data and then create a model.  
+
+Based on an initial view of the data, my objective was to see if there was a predictor that would help determine if a shooting incident resulted in death.
+
+### Descriptions of Columns in Data Used:
+
++ OCCUR_DATE: Exact date of the shooting incident
++ OCCUR_TIME: Exact time of the shooting incident
++ BORO: Borough where the shooting incident occurred
++ STATISTICAL_MURDER_FLAG: Shooting resulted in the victim's death which would be counted as a murder
++ VIC_AGE_GROUP: Victim's age withint a category
++ VIC_SEX: Victim's sex description
++ VIC_RACE: Victim's race description
+
+## Import Libraries and Data
+
+First the necessary R libraries along with the NYPD dataset are imported. 
+```{r, echo=TRUE, message=FALSE}
+
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+```
+```{r, include=TRUE, echo=TRUE}
+url <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+
+NYC_data <- read_csv(url)
+```
+
+### Inspect and Clean Data
+
+The initial data is checked for missing data and other potential anomalies to help determine how to properly clean the data.
+
+```{r NYC data, echo=TRUE}
+
+head(NYC_data)
+
+```
+
+### Analyze and Account for Missing Data
+Missing data is taken as a percentage of total data to get a better idea of any columns that lack sufficient data for analysis.  Based on the amount of missing data some categories were excluded from further analysis such as data relating to the perp.  
+
+```{r, echo=TRUE}
+
+missing_counts <- colSums(is.na(NYC_data))
+total_rows <- nrow(NYC_data)
+missing_percentages <- round((missing_counts / total_rows) * 100, 1)
+missing_percentages
+```
+
+### Change Data Types and Remove Columns
+The OCCUR_DATE column data is in the wrong format and must be changed to the date format.  Columns that won't be used in the analysis are removed.
+
+```{r, echo=TRUE}
+NYC_data <- NYC_data %>% mutate(OCCUR_DATE = mdy(OCCUR_DATE)) %>% select(-c(LOC_OF_OCCUR_DESC, LOCATION_DESC, X_COORD_CD, Y_COORD_CD, JURISDICTION_CODE, INCIDENT_KEY, PERP_RACE, PERP_AGE_GROUP, PERP_SEX, PRECINCT, LOC_CLASSFCTN_DESC, Lon_Lat, Latitude, Longitude)) 
+```
+
+### Remove Bad Date Entries
+There was one entry in age group "1022" that seemed to be an error in the data entry and was removed.
+```{r, echo=TRUE}
+NYC_data <- NYC_data[NYC_data$VIC_AGE_GROUP != "1022", ]
+```
+
+### Factorize Categorical Variables
+Categorical variables are factorized to help in analysis and summarization of the data.
+
+```{r, echo=TRUE}
+NYC_data$BORO = as.factor(NYC_data$BORO)
+NYC_data$VIC_AGE_GROUP = as.factor(NYC_data$VIC_AGE_GROUP)
+NYC_data$VIC_SEX = as.factor(NYC_data$VIC_SEX)
+NYC_data$VIC_RACE = as.factor(NYC_data$VIC_RACE)
+
+summary(NYC_data)
+```
+
+
+
+## Initial Analysis and Visualizations
+
+Incidents are plotted on a histogram based on time of day to see if there is a pattern on when these incidents occur.  
+
+```{r, echo=TRUE}
+NYC_data$hour <- hour(NYC_data$OCCUR_TIME)
+hist(NYC_data$hour, breaks = seq(0, 24, by = 1), main = "Occurrences by Hour of Day", xlab = "Hour of Day", ylab = "Frequency")
+```
+
+Most of the incidents appear to occur late night and early morning.  
+
+### Percentage of Shootings Resulting in Death
+Incidents are now transformed to see a percentage of shootings that end up as a murder and plotted against time to see how the distribution looks.
+```{r, echo=TRUE}
+incidents_by_hour <- table(NYC_data$hour)
+
+# Count murders by borough
+murders_data <- subset(NYC_data, STATISTICAL_MURDER_FLAG == TRUE)
+murders_by_hour <- table(murders_data$hour)
+
+# Calculate percentage of murders relative to total incidents for each borough
+percentage_murders_by_hour <- (murders_by_hour / incidents_by_hour) * 100
+
+# Convert to data frame
+percentage_murders_by_hour_df <- as.data.frame(percentage_murders_by_hour)
+names(percentage_murders_by_hour_df) <- c("hour", "percentage")
+
+# Plotting
+ggplot(percentage_murders_by_hour_df, aes(x = hour, y = percentage)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(title = "Percentage of Shootings Resulting in Death by Hour",
+       x = "hour",
+       y = "Percentage of Murders (%)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+Based on the graph, it doesn't appear that time of day has a major impact on whether or not a shooting results in death.
+
+The percentage of shootings resulting in death is now analyzed against the Borough, victim age, and victim sex for any potential relationships. 
+```{r, echo=TRUE}
+incidents_by_boro <- table(NYC_data$BORO)
+
+# Count murders by borough
+murders_data <- subset(NYC_data, STATISTICAL_MURDER_FLAG == TRUE)
+murders_by_boro <- table(murders_data$BORO)
+
+# Calculate percentage of murders relative to total incidents for each borough
+percentage_murders_by_boro <- (murders_by_boro / incidents_by_boro) * 100
+
+# Convert to data frame
+percentage_murders_by_boro_df <- as.data.frame(percentage_murders_by_boro)
+names(percentage_murders_by_boro_df) <- c("BORO", "percentage")
+
+# Plotting
+ggplot(percentage_murders_by_boro_df, aes(x = BORO, y = percentage)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")), vjust = -0.5, size = 3) +
+  labs(title = "Percentage of Shootings Resulting in Death by Borough",
+       x = "Borough",
+       y = "Percentage of Murders (%)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+
+```{r, echo=TRUE}
+incidents_by_age <- table(NYC_data$VIC_AGE_GROUP)
+
+# Count murders by borough
+murders_data <- subset(NYC_data, STATISTICAL_MURDER_FLAG == TRUE)
+murders_by_age <- table(murders_data$VIC_AGE_GROUP)
+
+# Calculate percentage of murders relative to total incidents for each borough
+percentage_murders_by_age <- (murders_by_age / incidents_by_age) * 100
+
+# Convert to data frame
+percentage_murders_by_age_df <- as.data.frame(percentage_murders_by_age)
+names(percentage_murders_by_age_df) <- c("AGE", "percentage")
+
+# Plotting
+ggplot(percentage_murders_by_age_df, aes(x = AGE, y = percentage)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")), vjust = -0.5, size = 3) +
+  labs(title = "Percentage of Shootings Resulting in Death by Age",
+       x = "Age",
+       y = "Percentage of Murders (%)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r, echo=TRUE}
+incidents_by_sex <- table(NYC_data$VIC_SEX)
+
+# Count murders by borough
+murders_data <- subset(NYC_data, STATISTICAL_MURDER_FLAG == TRUE)
+murders_by_sex <- table(murders_data$VIC_SEX)
+
+# Calculate percentage of murders relative to total incidents for each borough
+percentage_murders_by_sex <- (murders_by_sex / incidents_by_sex) * 100
+
+# Convert to data frame
+percentage_murders_by_sex_df <- as.data.frame(percentage_murders_by_sex)
+names(percentage_murders_by_sex_df) <- c("Sex", "percentage")
+
+# Plotting
+ggplot(percentage_murders_by_sex_df, aes(x = Sex, y = percentage)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")), vjust = -0.5, size = 3) +
+  labs(title = "Percentage of Shootings Resulting in Death by Sex",
+       x = "Sex",
+       y = "Percentage of Murders (%)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+Based on the the visualizations it appears that age has the greatest relationship with incidents resulting in death.  
+
+## Create a Model of the Data
+A model of the data is created using a logistic regression analysis to see the potential relationship between variables (victim age, victim sex, victim race, borough, and time) and likelihood of murder based on the statistical murder flag.
+```{r, echo=TRUE}
+logit_model <- glm(STATISTICAL_MURDER_FLAG ~ VIC_AGE_GROUP + VIC_SEX + VIC_RACE + BORO + hour , data = NYC_data, family = binomial)
+
+summary(logit_model)
+
+```
+Based on the model it appears that age has the greatest impact on determining whether or not a shooting incident results in murder.  The plot of age compared to percentage of incidents resulting in murder reflects this with an increase in percentage as age increases.  
+
+## Possible Biases in Data
+The data only includes those incidents that are reported so there may be incidents unreported for various reasons, especially incidents that don't result in murder.  It is unclear how many incidents go unreported and if it is of significance.   
+
+Although perp data was not used, there is possible bias in reporting the perp characteristics that could impact the data.  Individual biases of witnesses could influence the identification of the perp.
+
+## Additional Resources 
+
+Data Descriptions: https://data.cityofnewyork.us/Public-Safety/NYPD-Shooting-Incident-Data-Historic-/833y-fsy8/about_data
